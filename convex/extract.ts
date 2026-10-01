@@ -1,11 +1,12 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
-const MODEL = "claude-opus-5-5";
+// Override with the OPENAI_MODEL environment variable in Convex if desired.
+const MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
 const MAX_RATE_LIMIT_REQUEUES = 5;
 
 const leadSchema = {
@@ -58,9 +59,11 @@ If the photo has no contact information, return an empty leads array.`;
 
 // Pull the human-readable message out of an API error body instead of showing raw JSON.
 function apiErrorMessage(err: unknown): string {
-  if (err instanceof Anthropic.APIError) {
-    const body = err.error as { error?: { message?: string } } | undefined;
-    return `${err.status ?? ""} ${body?.error?.message ?? err.message}`.trim();
+  if (err instanceof OpenAI.APIError) {
+    if (err.code === "insufficient_quota") {
+      return "OpenAI account has no credits. Add credits at platform.openai.com/settings/organization/billing";
+    }
+    return `${err.status ?? ""} ${err.message}`.trim();
   }
   return err instanceof Error ? err.message : String(err);
 }
@@ -76,53 +79,35 @@ export const extractLeads = internalAction({
       const blob = await ctx.storage.get(photo.storageId);
       if (!blob) throw new Error("Photo file is missing from storage");
       const data = Buffer.from(await blob.arrayBuffer()).toString("base64");
-      const mediaType = (["image/jpeg", "image/png", "image/gif", "image/webp"].includes(blob.type)
-        ? blob.type
-        : "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+      const mediaType = blob.type.startsWith("image/") ? blob.type : "image/jpeg";
 
-      const client = new Anthropic({ maxRetries: 4 });
-      const request = {
+      const client = new OpenAI({ maxRetries: 4 });
+      const completion = await client.chat.completions.create({
         model: MODEL,
-        max_tokens: 16000,
-        system: SYSTEM_PROMPT,
-        output_config: {
-          effort: "medium" as const,
-          format: { type: "json_schema" as const, schema: outputSchema },
-        },
         messages: [
+          { role: "system", content: SYSTEM_PROMPT },
           {
-            role: "user" as const,
+            role: "user",
             content: [
-              { type: "image" as const, source: { type: "base64" as const, media_type: mediaType, data } },
-              { type: "text" as const, text: "Extract every prospect's contact information from this photo." },
+              { type: "text", text: "Extract every prospect's contact information from this photo." },
+              { type: "image_url", image_url: { url: `data:${mediaType};base64,${data}`, detail: "high" } },
             ],
           },
         ],
-      };
-      let response;
-      try {
-        // Re-run on another model server-side if a safety classifier declines.
-        response = await client.beta.messages.create({
-          ...request,
-          betas: ["server-side-fallback-2026-07-01"],
-          ...({ fallbacks: "default" } as object),
-        });
-      } catch (err) {
-        // The fallback feature is optional; if the API rejects it, try the plain request.
-        if (!(err instanceof Anthropic.BadRequestError)) throw err;
-        console.warn("Request with fallbacks rejected, retrying without:", apiErrorMessage(err));
-        response = await client.messages.create(request);
-      }
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "leads", strict: true, schema: outputSchema },
+        },
+      });
 
-      if (response.stop_reason === "refusal") {
-        throw new Error("The model declined to process this photo");
+      const choice = completion.choices[0];
+      if (choice.message.refusal) {
+        throw new Error(`The model declined to process this photo: ${choice.message.refusal}`);
       }
-      if (response.stop_reason === "max_tokens") {
+      if (choice.finish_reason === "length") {
         throw new Error("Response was cut off (too many contacts in one photo?)");
       }
-      const text = response.content
-        .flatMap((b) => (b.type === "text" ? [b.text] : []))
-        .join("");
+      const text = choice.message.content ?? "";
       const parsed = JSON.parse(text) as { leads: Lead[] };
       const leads = parsed.leads
         .map((l) => ({
@@ -141,7 +126,12 @@ export const extractLeads = internalAction({
     } catch (err) {
       // When many photos are uploaded at once we can exceed the API rate limit even
       // after the SDK's own retries; put the photo back in the queue for later.
-      if (err instanceof Anthropic.RateLimitError && attempt < MAX_RATE_LIMIT_REQUEUES) {
+      // (An empty-balance account also returns 429, but retrying won't help that.)
+      if (
+        err instanceof OpenAI.RateLimitError &&
+        err.code !== "insufficient_quota" &&
+        attempt < MAX_RATE_LIMIT_REQUEUES
+      ) {
         const delayMs = 30_000 * (attempt + 1) + Math.random() * 15_000;
         await ctx.scheduler.runAfter(delayMs, internal.extract.extractLeads, {
           photoId,
