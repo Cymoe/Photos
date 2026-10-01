@@ -46,10 +46,15 @@ npm run dev               # open http://localhost:5173
   the iPhone to Settings → Camera → Formats → Most Compatible.
 - Cost: roughly 1–3¢ per photo, depending on image size and how much is written on it.
 
-## Deploying
+## Deploying to Vercel (works entirely from a browser / iPad)
 
-```bash
-npx convex deploy
-npx convex env set ANTHROPIC_API_KEY sk-ant-... --prod
-npm run build             # then host dist/ anywhere (Vercel, Netlify, …) with VITE_CONVEX_URL set
-```
+`vercel.json` sets the build command to `npx convex deploy --cmd 'npm run build'`, which pushes the
+Convex backend and builds the site with the right `VITE_CONVEX_URL` in one step.
+
+1. **Convex:** at [dashboard.convex.dev](https://dashboard.convex.dev), create a project. Open
+   *Settings → Environment Variables* for the **Production** deployment and add
+   `ANTHROPIC_API_KEY`. Then go to *Settings → General* and generate a **Production deploy key**.
+2. **Vercel:** at [vercel.com/new](https://vercel.com/new), import this GitHub repo. Under
+   *Environment Variables*, add `CONVEX_DEPLOY_KEY` with the key from step 1, then deploy.
+
+Every push to the repo redeploys both the site and the backend.
