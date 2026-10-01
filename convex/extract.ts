@@ -56,6 +56,15 @@ Return one entry per distinct person. For each, transcribe exactly what is writt
 - Skip column headers, example rows, and crossed-out entries.
 If the photo has no contact information, return an empty leads array.`;
 
+// Pull the human-readable message out of an API error body instead of showing raw JSON.
+function apiErrorMessage(err: unknown): string {
+  if (err instanceof Anthropic.APIError) {
+    const body = err.error as { error?: { message?: string } } | undefined;
+    return `${err.status ?? ""} ${body?.error?.message ?? err.message}`.trim();
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 export const extractLeads = internalAction({
   args: { photoId: v.id("photos"), attempt: v.optional(v.number()) },
   handler: async (ctx, { photoId, attempt = 0 }) => {
@@ -72,27 +81,38 @@ export const extractLeads = internalAction({
         : "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
       const client = new Anthropic({ maxRetries: 4 });
-      const response = await client.beta.messages.create({
+      const request = {
         model: MODEL,
         max_tokens: 16000,
         system: SYSTEM_PROMPT,
         output_config: {
-          effort: "medium",
-          format: { type: "json_schema", schema: outputSchema },
+          effort: "medium" as const,
+          format: { type: "json_schema" as const, schema: outputSchema },
         },
-        // Re-run on another model server-side if a safety classifier declines.
-        betas: ["server-side-fallback-2026-07-01"],
-        ...({ fallbacks: "default" } as object),
         messages: [
           {
-            role: "user",
+            role: "user" as const,
             content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data } },
-              { type: "text", text: "Extract every prospect's contact information from this photo." },
+              { type: "image" as const, source: { type: "base64" as const, media_type: mediaType, data } },
+              { type: "text" as const, text: "Extract every prospect's contact information from this photo." },
             ],
           },
         ],
-      });
+      };
+      let response;
+      try {
+        // Re-run on another model server-side if a safety classifier declines.
+        response = await client.beta.messages.create({
+          ...request,
+          betas: ["server-side-fallback-2026-07-01"],
+          ...({ fallbacks: "default" } as object),
+        });
+      } catch (err) {
+        // The fallback feature is optional; if the API rejects it, try the plain request.
+        if (!(err instanceof Anthropic.BadRequestError)) throw err;
+        console.warn("Request with fallbacks rejected, retrying without:", apiErrorMessage(err));
+        response = await client.messages.create(request);
+      }
 
       if (response.stop_reason === "refusal") {
         throw new Error("The model declined to process this photo");
@@ -129,7 +149,8 @@ export const extractLeads = internalAction({
         });
         return;
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = apiErrorMessage(err);
+      console.error(`Extraction failed for ${photo.fileName}:`, message);
       await ctx.runMutation(internal.photos.setStatus, { photoId, status: "error", error: message });
     }
   },
