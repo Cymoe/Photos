@@ -4,7 +4,8 @@ import { api } from "../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import type { Doc } from "../convex/_generated/dataModel";
 import { resizeImage } from "./resize";
-import { extractLeads } from "./extract";
+import { extractLeads, keepScreenAwake } from "./extract";
+import { parseBusinessInfo, type BusinessInfo } from "./parseLead";
 import { downloadCsv } from "./csv";
 
 const UPLOAD_CONCURRENCY = 4;
@@ -21,7 +22,7 @@ const LABELS: Record<Field, string> = {
   notes: "Notes",
 };
 
-type UploadState = { total: number; done: number; failed: string[] };
+type UploadState = { total: number; done: number; failed: string[]; skipped: number };
 
 export default function App() {
   const photos = useQuery(api.photos.list);
@@ -29,21 +30,27 @@ export default function App() {
   const [tab, setTab] = useState<"leads" | "photos">("leads");
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const businessText = useQuery(api.settings.getBusinessInfo);
+  const business = useMemo(() => parseBusinessInfo(businessText ?? ""), [businessText]);
 
   const generateUploadUrl = useMutation(api.photos.generateUploadUrl);
   const savePhoto = useMutation(api.photos.savePhoto);
 
   async function uploadFiles(files: File[]) {
-    const images = files.filter((f) => f.type.startsWith("image/") || /\.hei[cf]$/i.test(f.name));
-    if (!images.length) return;
-    const state: UploadState = { total: images.length, done: 0, failed: [] };
+    // Skip photos already uploaded (by file name) so a batch can safely be re-selected
+    // after an interruption. Generic names like "image.jpg" are never skipped.
+    const uploaded = new Set((photos ?? []).map((p) => p.fileName));
+    const all = files.filter((f) => f.type.startsWith("image/") || /\.hei[cf]$/i.test(f.name));
+    const images = all.filter((f) => /^image\.\w+$/i.test(f.name) || !uploaded.has(f.name));
+    if (!all.length) return;
+    const state: UploadState = { total: images.length, done: 0, failed: [], skipped: all.length - images.length };
     setUpload({ ...state });
     const queue = [...images];
     const worker = async () => {
       for (let file = queue.shift(); file; file = queue.shift()) {
         try {
           const blob = await resizeImage(file);
-          const result = await extractLeads(blob);
+          const result = await extractLeads(blob, business);
           const url = await generateUploadUrl();
           const res = await fetch(url, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
           if (!res.ok) throw new Error(`Upload failed (${res.status})`);
@@ -56,7 +63,12 @@ export default function App() {
         setUpload({ ...state, failed: [...state.failed] });
       }
     };
-    await Promise.all(Array.from({ length: UPLOAD_CONCURRENCY }, worker));
+    const release = await keepScreenAwake();
+    try {
+      await Promise.all(Array.from({ length: UPLOAD_CONCURRENCY }, worker));
+    } finally {
+      release();
+    }
   }
 
   const counts = useMemo(() => {
@@ -71,12 +83,12 @@ export default function App() {
         <h1>Photo Lead Extractor</h1>
         <div className="stats">
           <Stat label="Photos" value={photos?.length} />
-          <Stat label="Queued" value={counts.pending + counts.processing} />
           <Stat label="Failed" value={counts.error} tone={counts.error ? "bad" : undefined} />
           <Stat label="Leads" value={leads?.length} tone="good" />
         </div>
       </header>
 
+      <BusinessInfoBox value={businessText} />
       <DropZone onFiles={uploadFiles} />
       {upload && (
         <div className="upload-status">
@@ -85,6 +97,7 @@ export default function App() {
             {upload.done < upload.total
               ? `Reading & uploading ${upload.done} / ${upload.total}. Keep this page open.`
               : `Done: ${upload.total} photo${upload.total === 1 ? "" : "s"} processed`}
+            {upload.skipped > 0 && ` (skipped ${upload.skipped} already uploaded)`}
           </span>
           {upload.done === upload.total && (
             <button className="link" onClick={() => setUpload(null)}>dismiss</button>
@@ -107,7 +120,7 @@ export default function App() {
       {tab === "leads" ? (
         <LeadsTable leads={leads} photos={photos} onPreview={setPreview} />
       ) : (
-        <PhotoGrid photos={photos} onPreview={setPreview} />
+        <PhotoGrid photos={photos} business={business} onPreview={setPreview} />
       )}
 
       {preview && (
@@ -296,7 +309,53 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
   );
 }
 
-function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url: string) => void }) {
+function BusinessInfoBox({ value }: { value?: string }) {
+  const save = useMutation(api.settings.saveBusinessInfo);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  if (value === undefined) return null;
+  const text = draft ?? value;
+  const lines = value.split("\n").filter((l) => l.trim()).length;
+  return (
+    <details className="business" open={open || !value} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        My business info {lines > 0 ? `(${lines} item${lines === 1 ? "" : "s"} ignored)` : "(not set)"}
+      </summary>
+      <p className="muted">
+        Your own address, phone numbers and emails, one per line. These are skipped so they never end up
+        as a lead&apos;s details. After changing this, use <strong>Re-extract all</strong> on the Photos tab.
+      </p>
+      <textarea
+        rows={4}
+        value={text}
+        placeholder={"801 E County Road 121, Midland TX\n(432) 400-5478\ninfo@yourbusiness.com"}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="toolbar">
+        <button
+          disabled={draft === null || draft === value}
+          onClick={async () => {
+            await save({ businessInfo: text.trim() });
+            setDraft(null);
+            setOpen(false);
+          }}
+        >
+          Save
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function PhotoGrid({
+  photos,
+  business,
+  onPreview,
+}: {
+  photos?: PhotoRow[];
+  business: BusinessInfo;
+  onPreview: (url: string) => void;
+}) {
   const saveResult = useMutation(api.photos.saveResult);
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
@@ -306,7 +365,7 @@ function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url
     setBusy((b) => new Set(b).add(p._id));
     try {
       const blob = await (await fetch(p.url)).blob();
-      await saveResult({ photoId: p._id, ...(await extractLeads(blob)) });
+      await saveResult({ photoId: p._id, ...(await extractLeads(blob, business)) });
     } finally {
       setBusy((b) => {
         const next = new Set(b);
@@ -315,8 +374,19 @@ function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url
       });
     }
   }
-  async function retryAllFailed() {
-    for (const p of photos?.filter((p) => p.status === "error") ?? []) await reextract(p);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  async function reextractMany(list: PhotoRow[]) {
+    const release = await keepScreenAwake();
+    setProgress({ done: 0, total: list.length });
+    try {
+      for (const [i, p] of list.entries()) {
+        await reextract(p);
+        setProgress({ done: i + 1, total: list.length });
+      }
+    } finally {
+      release();
+      setProgress(null);
+    }
   }
   const remove = useMutation(api.photos.remove);
   if (!photos) return <p className="muted">Loading…</p>;
@@ -324,13 +394,29 @@ function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url
 
   return (
     <section>
-      {failed > 0 && (
-        <div className="toolbar">
-          <button onClick={retryAllFailed} disabled={busy.size > 0}>
-            {busy.size > 0 ? "Re-reading…" : `Retry ${failed} failed`}
-          </button>
-        </div>
-      )}
+      <div className="toolbar">
+        {progress ? (
+          <span>Re-reading {progress.done} / {progress.total}. Keep this page open.</span>
+        ) : (
+          <>
+            {failed > 0 && (
+              <button onClick={() => reextractMany(photos.filter((p) => p.status === "error"))}>
+                Retry {failed} failed
+              </button>
+            )}
+            {photos.length > 0 && (
+              <button
+                onClick={() =>
+                  confirm(`Re-read all ${photos.length} photos? Any edits you made to their leads will be replaced.`) &&
+                  reextractMany(photos)
+                }
+              >
+                Re-extract all
+              </button>
+            )}
+          </>
+        )}
+      </div>
       <div className="grid">
         {photos.map((p) => (
           <figure key={p._id} className={`photo ${p.status}`}>

@@ -10,6 +10,7 @@
 
 import type * as leads from "../leads.js";
 import type * as photos from "../photos.js";
+import type * as settings from "../settings.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +21,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   photos: typeof photos;
+  settings: typeof settings;
 }>;
 
 export declare const api: FilterApi<

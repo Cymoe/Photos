@@ -92,13 +92,52 @@ export function splitAddress(raw: string): Pick<Lead, "address" | "city" | "stat
   return { address: rest, city, state, zip };
 }
 
-export function parseLead(text: string): Lead | null {
+// The user's own business details, which appear in screenshots but aren't the prospect's.
+export type BusinessInfo = { addresses: string[]; phones: string[]; emails: string[] };
+
+const ABBREV: Record<string, string> = {
+  street: "st", avenue: "ave", road: "rd", drive: "dr", lane: "ln", boulevard: "blvd", court: "ct",
+  highway: "hwy", parkway: "pkwy", east: "e", west: "w", north: "n", south: "s",
+};
+// "801 East County Road 121, Midland" -> "801 e county": house number + first street words,
+// tolerant of abbreviations and OCR punctuation differences.
+const addressKey = (a: string) =>
+  a.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean)
+    .map((w) => ABBREV[w] ?? w).slice(0, 3).join(" ");
+const digitsKey = (p: string) => {
+  const d = p.replace(/\D/g, "");
+  return d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+};
+
+// One item per line; each line is classified as an email, a phone number or an address.
+export function parseBusinessInfo(text: string): BusinessInfo {
+  const info: BusinessInfo = { addresses: [], phones: [], emails: [] };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (EMAIL_RE.test(line)) info.emails.push(cleanEmail(line.match(EMAIL_RE)![0]));
+    else if (/^[\d\s()+.-]+$/.test(line) && digitsKey(line).length >= 10) info.phones.push(digitsKey(line));
+    else info.addresses.push(addressKey(line));
+  }
+  return info;
+}
+
+const NO_BUSINESS: BusinessInfo = { addresses: [], phones: [], emails: [] };
+
+export function parseLead(text: string, business: BusinessInfo = NO_BUSINESS): Lead | null {
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.replace(/[|]/g, "").trim())
     .filter(Boolean);
 
-  const found: Partial<Record<keyof Lead | "first" | "last", string>> = {};
+  const isBusiness = (field: string, value: string) =>
+    (field === "address" && business.addresses.includes(addressKey(value))) ||
+    (field === "phone" && business.phones.includes(digitsKey(value.match(PHONE_RE)?.[0] ?? value))) ||
+    (field === "email" && business.emails.includes(cleanEmail(value.match(EMAIL_RE)?.[0] ?? value)));
+
+  // Every labeled value with the line it was on; a screenshot can contain several
+  // (e.g. the business's own "Address:" in an outgoing message).
+  const candidates: Partial<Record<keyof Lead | "first" | "last", { value: string; line: number }[]>> = {};
   const notes: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -107,6 +146,7 @@ export function parseLead(text: string): Lead | null {
     if (!m) continue;
     const [, label, valueRaw] = m;
     let value = valueRaw.trim();
+    const start = i;
     const field = LABELS.find(([re]) => re.test(label.trim()))?.[1];
     if (field) {
       // Value on the next line ("Address:\n1417 Golder Ave ...")
@@ -117,12 +157,29 @@ export function parseLead(text: string): Lead | null {
           !new RegExp(`\\b(${STATE_PATTERN})\\b|\\b\\d{5}\\b`, "i").test(value)) {
         value = `${value} ${lines[++i]}`;
       }
-      if (value && !found[field]) found[field] = value;
+      if (value && !isBusiness(field, value)) (candidates[field] ??= []).push({ value, line: start });
     } else if (value && /\?$/.test(label) === false && label.length > 2) {
       // Other labeled answers ("Building type: Landscaping") are useful context.
       while (/^[a-z(]/.test(lines[i + 1] ?? "") && !/:/.test(lines[i + 1])) value += ` ${lines[++i]}`;
       notes.push(`${label.trim()}: ${value}`);
     }
+  }
+
+  // The prospect's details sit together; anchor on their name label (else the first
+  // phone/email) and take the closest candidate for every field.
+  const lineOf = (f: keyof typeof candidates) => candidates[f]?.[0]?.line;
+  const anchor =
+    lineOf("name") ?? lineOf("first") ??
+    [lineOf("phone"), lineOf("email")].filter((n): n is number => n !== undefined).sort((x, y) => x - y)[0];
+  const found: Partial<Record<keyof Lead | "first" | "last", string>> = {};
+  for (const [field, list] of Object.entries(candidates) as [keyof typeof candidates, { value: string; line: number }[]][]) {
+    const best = anchor === undefined
+      ? list[0]
+      // On a tie, prefer the value below the name: forms list the name first.
+      : [...list].sort((x, y) =>
+          Math.abs(x.line - anchor) - Math.abs(y.line - anchor) || Number(y.line > anchor) - Number(x.line > anchor),
+        )[0];
+    found[field] = best.value;
   }
 
   // Form questions often end in "?:" and wrap across lines; rejoin both halves.
@@ -144,12 +201,12 @@ export function parseLead(text: string): Lead | null {
   let email = found.email ? cleanEmail(found.email.match(EMAIL_RE)?.[0] ?? found.email) : "";
 
   if (!phone) {
-    const line = lines.find((l) => !IGNORE_LINE.test(l) && PHONE_RE.test(l));
+    const line = lines.find((l) => !IGNORE_LINE.test(l) && PHONE_RE.test(l) && !isBusiness("phone", l));
     if (line) phone = formatPhone(line.match(PHONE_RE)![0]);
   }
   if (!email) {
-    const m = text.match(EMAIL_RE);
-    if (m) email = cleanEmail(m[0]);
+    const m = lines.map((l) => l.match(EMAIL_RE)?.[0]).find((e) => e && !isBusiness("email", e));
+    if (m) email = cleanEmail(m);
   }
   if (!name) {
     // CRM screenshots show the contact's name in the header or under "Opportunity Created".
