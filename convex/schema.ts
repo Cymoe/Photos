@@ -12,6 +12,8 @@ export default defineSchema({
       v.literal("error"),
     ),
     error: v.optional(v.string()),
+    // Raw recognized text, kept so bad extractions can be diagnosed.
+    ocrText: v.optional(v.string()),
     leadCount: v.optional(v.number()),
   }).index("by_status", ["status"]),
 

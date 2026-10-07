@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as extract from "../extract.js";
 import type * as leads from "../leads.js";
 import type * as photos from "../photos.js";
 
@@ -19,7 +18,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  extract: typeof extract;
   leads: typeof leads;
   photos: typeof photos;
 }>;

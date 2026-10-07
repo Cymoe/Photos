@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 export const phoneKey = (phone: string) => {
   const digits = phone.replace(/\D/g, "");
@@ -7,7 +8,7 @@ export const phoneKey = (phone: string) => {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 };
 
-const leadFields = {
+export const leadFields = {
   name: v.string(),
   phone: v.string(),
   email: v.string(),
@@ -66,18 +67,18 @@ export const remove = mutation({
   },
 });
 
-// Replaces any previous leads for the photo, so re-running extraction is idempotent.
-export const saveExtracted = internalMutation({
-  args: { photoId: v.id("photos"), leads: v.array(v.object(leadFields)) },
-  handler: async (ctx, { photoId, leads }) => {
-    const existing = await ctx.db
-      .query("leads")
-      .withIndex("by_photo", (q) => q.eq("photoId", photoId))
-      .collect();
-    for (const lead of existing) await ctx.db.delete(lead._id);
-    for (const lead of leads) {
-      await ctx.db.insert("leads", { ...lead, photoId, phoneKey: phoneKey(lead.phone) });
-    }
-    await ctx.db.patch(photoId, { status: "done", error: undefined, leadCount: leads.length });
-  },
-});
+// Replaces any previous leads for the photo, so re-extracting is idempotent.
+export async function replaceLeads(
+  ctx: MutationCtx,
+  photoId: Id<"photos">,
+  leads: { name: string; phone: string; email: string; address: string; city: string; state: string; zip: string; notes: string }[],
+) {
+  const existing = await ctx.db
+    .query("leads")
+    .withIndex("by_photo", (q) => q.eq("photoId", photoId))
+    .collect();
+  for (const lead of existing) await ctx.db.delete(lead._id);
+  for (const lead of leads) {
+    await ctx.db.insert("leads", { ...lead, photoId, phoneKey: phoneKey(lead.phone) });
+  }
+}

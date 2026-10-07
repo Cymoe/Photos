@@ -1,6 +1,6 @@
-// Phone photos are often 5–12 MB; the vision API caps images at 5 MB and gains
-// nothing past ~2000px, so shrink before uploading. Also speeds up 300-photo batches.
-const MAX_EDGE = 2000;
+// Phone photos can be 5–12 MB. Shrinking to ~2800px keeps uploads fast while leaving
+// screenshot text sharp enough for text recognition.
+const MAX_EDGE = 2800;
 
 export async function resizeImage(file: File): Promise<Blob> {
   let bitmap: ImageBitmap;

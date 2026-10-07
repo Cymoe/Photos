@@ -4,6 +4,7 @@ import { api } from "../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
 import type { Doc } from "../convex/_generated/dataModel";
 import { resizeImage } from "./resize";
+import { extractLeads } from "./extract";
 import { downloadCsv } from "./csv";
 
 const UPLOAD_CONCURRENCY = 4;
@@ -42,11 +43,12 @@ export default function App() {
       for (let file = queue.shift(); file; file = queue.shift()) {
         try {
           const blob = await resizeImage(file);
+          const result = await extractLeads(blob);
           const url = await generateUploadUrl();
           const res = await fetch(url, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
           if (!res.ok) throw new Error(`Upload failed (${res.status})`);
           const { storageId } = await res.json();
-          await savePhoto({ storageId, fileName: file.name });
+          await savePhoto({ storageId, fileName: file.name, ...result });
         } catch (err) {
           state.failed.push(`${file.name}: ${err instanceof Error ? err.message : err}`);
         }
@@ -80,8 +82,9 @@ export default function App() {
         <div className="upload-status">
           <progress value={upload.done} max={upload.total} />
           <span>
-            Uploaded {upload.done} / {upload.total}
-            {upload.done === upload.total && " — extraction continues in the background"}
+            {upload.done < upload.total
+              ? `Reading & uploading ${upload.done} / ${upload.total}. Keep this page open.`
+              : `Done: ${upload.total} photo${upload.total === 1 ? "" : "s"} processed`}
           </span>
           {upload.done === upload.total && (
             <button className="link" onClick={() => setUpload(null)}>dismiss</button>
@@ -294,8 +297,27 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
 }
 
 function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url: string) => void }) {
-  const retry = useMutation(api.photos.retry);
-  const retryAllFailed = useMutation(api.photos.retryAllFailed);
+  const saveResult = useMutation(api.photos.saveResult);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+
+  // Re-read an already-uploaded photo (e.g. after the parser improves).
+  async function reextract(p: PhotoRow) {
+    if (!p.url) return;
+    setBusy((b) => new Set(b).add(p._id));
+    try {
+      const blob = await (await fetch(p.url)).blob();
+      await saveResult({ photoId: p._id, ...(await extractLeads(blob)) });
+    } finally {
+      setBusy((b) => {
+        const next = new Set(b);
+        next.delete(p._id);
+        return next;
+      });
+    }
+  }
+  async function retryAllFailed() {
+    for (const p of photos?.filter((p) => p.status === "error") ?? []) await reextract(p);
+  }
   const remove = useMutation(api.photos.remove);
   if (!photos) return <p className="muted">Loading…</p>;
   const failed = photos.filter((p) => p.status === "error").length;
@@ -304,7 +326,9 @@ function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url
     <section>
       {failed > 0 && (
         <div className="toolbar">
-          <button onClick={() => retryAllFailed()}>Retry {failed} failed</button>
+          <button onClick={retryAllFailed} disabled={busy.size > 0}>
+            {busy.size > 0 ? "Re-reading…" : `Retry ${failed} failed`}
+          </button>
         </div>
       )}
       <div className="grid">
@@ -318,7 +342,9 @@ function PhotoGrid({ photos, onPreview }: { photos?: PhotoRow[]; onPreview: (url
               </span>
               {p.error && <span className="error" title={p.error}>{p.error}</span>}
               <span className="actions">
-                <button className="link" onClick={() => retry({ photoId: p._id })}>re-extract</button>
+                <button className="link" onClick={() => reextract(p)} disabled={busy.has(p._id)}>
+                  {busy.has(p._id) ? "reading…" : "re-extract"}
+                </button>
                 <button
                   className="link"
                   onClick={() => confirm(`Delete ${p.fileName} and its leads?`) && remove({ photoId: p._id })}
