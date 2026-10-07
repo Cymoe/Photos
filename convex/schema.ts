@@ -32,6 +32,11 @@ export default defineSchema({
     state: v.string(),
     zip: v.string(),
     notes: v.string(),
+    // Pipeline stage (see STATUSES in convex/leads.ts); missing means "new".
+    status: v.optional(v.string()),
+    statusChangedAt: v.optional(v.number()),
+    // The user's own follow-up notes (separate from extracted form answers in `notes`).
+    myNotes: v.optional(v.string()),
     // Normalized digits-only phone, used to spot duplicates across photos.
     phoneKey: v.string(),
   })

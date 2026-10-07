@@ -8,6 +8,13 @@ export const phoneKey = (phone: string) => {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 };
 
+export const STATUSES = ["new", "contacted", "scheduled", "sent", "won", "lost"] as const;
+const statusValidator = v.union(...STATUSES.map((s) => v.literal(s)));
+
+// One person can appear in several screenshots; status and notes follow the person.
+export const personKey = (l: { phoneKey?: string; email: string; name: string }) =>
+  l.phoneKey || l.email.toLowerCase() || l.name.toLowerCase().replace(/\s+/g, " ").trim();
+
 export const leadFields = {
   date: v.string(),
   name: v.string(),
@@ -34,6 +41,8 @@ export const list = query({
     return leads.map((l) => ({
       ...l,
       date: l.date ?? "",
+      status: l.status ?? "new",
+      myNotes: l.myNotes ?? "",
       fileName: photos.get(l.photoId) ?? "",
       duplicate: !!l.phoneKey && (phoneCounts.get(l.phoneKey) ?? 0) > 1,
     }));
@@ -53,6 +62,7 @@ export const update = mutation({
       v.literal("state"),
       v.literal("zip"),
       v.literal("notes"),
+      v.literal("myNotes"),
     ),
     value: v.string(),
   },
@@ -60,6 +70,22 @@ export const update = mutation({
     const patch: Record<string, string> = { [field]: value };
     if (field === "phone") patch.phoneKey = phoneKey(value);
     await ctx.db.patch(leadId, patch);
+  },
+});
+
+// Moves leads (all screenshots of one person) to a pipeline stage.
+export const setStatus = mutation({
+  args: { leadIds: v.array(v.id("leads")), status: statusValidator },
+  handler: async (ctx, { leadIds, status }) => {
+    const now = Date.now();
+    for (const id of leadIds) await ctx.db.patch(id, { status, statusChangedAt: now });
+  },
+});
+
+export const setMyNotes = mutation({
+  args: { leadIds: v.array(v.id("leads")), myNotes: v.string() },
+  handler: async (ctx, { leadIds, myNotes }) => {
+    for (const id of leadIds) await ctx.db.patch(id, { myNotes });
   },
 });
 
@@ -80,8 +106,24 @@ export async function replaceLeads(
     .query("leads")
     .withIndex("by_photo", (q) => q.eq("photoId", photoId))
     .collect();
+  // Re-reading a photo must not lose pipeline progress: carry status/notes over to the
+  // matching new lead (same person, or the only lead when the photo has just one).
+  const kept = new Map(existing.map((l) => [personKey(l), l]));
   for (const lead of existing) await ctx.db.delete(lead._id);
   for (const lead of leads) {
-    await ctx.db.insert("leads", { ...lead, photoId, phoneKey: phoneKey(lead.phone) });
+    const key = phoneKey(lead.phone);
+    const prior =
+      kept.get(personKey({ ...lead, phoneKey: key })) ??
+      (existing.length === 1 && leads.length === 1 ? existing[0] : undefined) ??
+      // A new screenshot of someone already in the pipeline joins them where they are.
+      (key ? await ctx.db.query("leads").withIndex("by_phoneKey", (q) => q.eq("phoneKey", key)).first() : null) ??
+      undefined;
+    await ctx.db.insert("leads", {
+      ...lead,
+      photoId,
+      phoneKey: key,
+      ...(prior?.status && { status: prior.status, statusChangedAt: prior.statusChangedAt }),
+      ...(prior?.myNotes && { myNotes: prior.myNotes }),
+    });
   }
 }

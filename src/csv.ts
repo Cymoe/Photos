@@ -1,5 +1,5 @@
-const COLUMNS = ["date", "name", "phone", "email", "address", "city", "state", "zip", "notes", "fileName"] as const;
-const HEADERS = ["Date", "Name", "Phone", "Email", "Address", "City", "State", "Zip", "Notes", "Source Photo"];
+const COLUMNS = ["date", "status", "name", "phone", "email", "address", "city", "state", "zip", "notes", "myNotes", "fileName"] as const;
+const HEADERS = ["Date", "Stage", "Name", "Phone", "Email", "Address", "City", "State", "Zip", "Project Details", "My Notes", "Source Photo"];
 
 type Row = Record<(typeof COLUMNS)[number], string>;
 

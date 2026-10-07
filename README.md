@@ -13,7 +13,12 @@ in a Convex database, where you can review, fix, dedupe, and export them to CSV.
    "Email:", "Address:", ...), falls back to any phone/email in the text, skips system lines like
    "Using +1 ... to send SMS", and splits addresses into street/city/state/zip.
 3. **Save:** the image goes to Convex file storage and the lead to the `leads` table.
-4. **Review & export:** edit any cell, tap the source filename to see the photo, spot duplicate phone
+4. **Pipeline:** the *Pipeline* tab is a board (New → Contacted → Estimate Scheduled → Estimate
+   Sent → Won / Lost), newest leads at the top of every column. Drag a card by ⠿ (works with a
+   finger) or pick a stage from its menu; add your own follow-up notes; tap phone/email/address to
+   call, email or open Maps. Screenshots of the same person are merged into one card, and the banner
+   shows the newest lead's date so you can tell whether the latest leads are in.
+5. **Review & export:** edit any cell, tap the source filename to see the photo, spot duplicate phone
    numbers, and export a CSV (optionally deduped by phone).
 
 Works best on screenshots and printed text; handwriting is not reliable with OCR.

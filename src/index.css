@@ -106,3 +106,37 @@ tr.dupe td { background: var(--warn-soft); }
 .business p { margin: 8px 0; font-size: 13px; }
 .business textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); resize: vertical; }
 .business .toolbar { margin: 8px 0 0; }
+
+/* Pipeline board */
+.freshness { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.freshness .link.active { font-weight: 600; }
+.hint { font-size: 13px; }
+.board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; align-items: flex-start; -webkit-overflow-scrolling: touch; }
+.column { flex: 0 0 280px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px; min-height: 200px; transition: background 0.15s, border-color 0.15s; }
+.column.drop { border-color: var(--accent); background: var(--accent-soft); }
+.column h3 { margin: 4px 6px 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-top: 4px solid var(--stage, var(--border)); padding-top: 8px; }
+.column .count { color: var(--muted); font-weight: 400; }
+.column .empty { color: var(--muted); text-align: center; font-size: 13px; margin: 24px 0; }
+.stage-new { --stage: #2f6fed; }
+.stage-contacted { --stage: #8a5cf6; }
+.stage-scheduled { --stage: #e8a317; }
+.stage-sent { --stage: #f07f2b; }
+.stage-won { --stage: #1a8f4e; }
+.stage-lost { --stage: #9a9aa6; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.card.dragging { opacity: 0.4; }
+.card header { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-start; margin: 0; flex-wrap: nowrap; }
+.drag-handle { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 4px 6px; margin: -4px 0 0 -4px; border-radius: 4px; }
+.drag-handle:active { background: var(--accent-soft); }
+.card .who { display: flex; flex-direction: column; min-width: 0; }
+.card .who strong { font-size: 15px; }
+.card .when { font-size: 12px; color: var(--muted); }
+.card .when.undated { color: var(--bad); }
+.card .contact { display: flex; flex-direction: column; gap: 3px; }
+.card .contact a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.card .project { margin: 0; padding: 8px 10px 8px 24px; background: var(--warn-soft); border-radius: 6px; font-size: 13px; }
+.card .project li { margin: 2px 0; }
+.my-notes { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); resize: vertical; }
+.card footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card footer select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.drag-ghost { position: fixed; transform: translate(-50%, -120%); background: var(--accent); color: #fff; padding: 6px 12px; border-radius: 6px; pointer-events: none; z-index: 20; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }

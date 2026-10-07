@@ -8,6 +8,8 @@ import { extractLeads, keepScreenAwake } from "./extract";
 import { readPhotoDate } from "./photoDate";
 import { parseBusinessInfo, type BusinessInfo } from "./parseLead";
 import { downloadCsv } from "./csv";
+import { Board } from "./Board";
+import { byNewest } from "./pipeline";
 
 const UPLOAD_CONCURRENCY = 4;
 const FIELDS = ["date", "name", "phone", "email", "address", "city", "state", "zip", "notes"] as const;
@@ -29,7 +31,7 @@ type UploadState = { total: number; done: number; failed: string[]; skipped: num
 export default function App() {
   const photos = useQuery(api.photos.list);
   const leads = useQuery(api.leads.list);
-  const [tab, setTab] = useState<"leads" | "photos">("leads");
+  const [tab, setTab] = useState<"board" | "leads" | "photos">("board");
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const businessText = useQuery(api.settings.getBusinessInfo);
@@ -90,6 +92,8 @@ export default function App() {
     }
   }
 
+  const photoUrls = useMemo(() => new Map((photos ?? []).map((p) => [p._id as string, p.url])), [photos]);
+
   const counts = useMemo(() => {
     const c = { pending: 0, processing: 0, done: 0, error: 0 };
     for (const p of photos ?? []) c[p.status]++;
@@ -128,15 +132,20 @@ export default function App() {
       )}
 
       <nav className="tabs">
+        <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}>
+          Pipeline
+        </button>
         <button className={tab === "leads" ? "active" : ""} onClick={() => setTab("leads")}>
-          Leads ({leads?.length ?? 0})
+          Table ({leads?.length ?? 0})
         </button>
         <button className={tab === "photos" ? "active" : ""} onClick={() => setTab("photos")}>
           Photos ({photos?.length ?? 0})
         </button>
       </nav>
 
-      {tab === "leads" ? (
+      {tab === "board" ? (
+        <Board leads={leads} photoUrls={photoUrls} onPreview={setPreview} />
+      ) : tab === "leads" ? (
         <LeadsTable leads={leads} photos={photos} onPreview={setPreview} />
       ) : (
         <PhotoGrid photos={photos} business={business} onPreview={setPreview} />
@@ -222,10 +231,12 @@ function LeadsTable({
     );
     if (sort === "upload") return rows;
     // Undated leads go last either way; dates are YYYY-MM-DD so they compare as strings.
-    const dir = sort === "newest" ? -1 : 1;
-    return [...rows].sort((a, b) =>
-      !a.date || !b.date ? Number(!a.date) - Number(!b.date) : a.date.localeCompare(b.date) * dir,
-    );
+    const sorted = [...rows].sort(byNewest);
+    if (sort === "oldest") {
+      const dated = sorted.filter((l) => l.date).reverse();
+      return [...dated, ...sorted.filter((l) => !l.date)];
+    }
+    return sorted;
   }, [leads, search, dupesOnly, sort]);
 
   if (!leads) return <p className="muted">Loading…</p>;
