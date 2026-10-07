@@ -75,7 +75,9 @@ export function splitAddress(raw: string): Pick<Lead, "address" | "city" | "stat
     rest = rest.slice(0, zipMatch.index).replace(/[,\s]+$/, "");
   }
   const stateMatch = rest.match(new RegExp(`[,\\s]+(${STATE_PATTERN})\\.?$`, "i"));
-  if (stateMatch) {
+  // "5 Iron Wood Ct" is Court, not Connecticut, unless a comma or zip marks it as a state.
+  const courtNotState = stateMatch && /^ct$/i.test(stateMatch[1]) && !zip && !/,\s*ct\.?$/i.test(rest);
+  if (stateMatch && !courtNotState) {
     const s = stateMatch[1];
     state = STATES[s.toLowerCase()] ?? s.toUpperCase();
     rest = rest.slice(0, stateMatch.index).replace(/[,\s]+$/, "");

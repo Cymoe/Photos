@@ -37,13 +37,17 @@ export default function App() {
 
   const generateUploadUrl = useMutation(api.photos.generateUploadUrl);
   const savePhoto = useMutation(api.photos.savePhoto);
+  const saveResult = useMutation(api.photos.saveResult);
 
   async function uploadFiles(files: File[]) {
-    // Skip photos already uploaded (by file name) so a batch can safely be re-selected
-    // after an interruption. Generic names like "image.jpg" are never skipped.
-    const uploaded = new Set((photos ?? []).map((p) => p.fileName));
+    // Photos already uploaded (matched by file name) aren't uploaded again, so a batch can
+    // safely be re-selected after an interruption. If an earlier upload is missing its
+    // capture date, re-selecting the photo fills it in. Generic names like "image.jpg"
+    // are always treated as new.
+    const uploaded = new Map((photos ?? []).map((p) => [p.fileName, p]));
+    const existing = (f: File) => (/^image\.\w+$/i.test(f.name) ? undefined : uploaded.get(f.name));
     const all = files.filter((f) => f.type.startsWith("image/") || /\.hei[cf]$/i.test(f.name));
-    const images = all.filter((f) => /^image\.\w+$/i.test(f.name) || !uploaded.has(f.name));
+    const images = all.filter((f) => !existing(f) || existing(f)!.takenAt === undefined);
     if (!all.length) return;
     const state: UploadState = { total: images.length, done: 0, failed: [], skipped: all.length - images.length };
     setUpload({ ...state });
@@ -52,6 +56,17 @@ export default function App() {
       for (let file = queue.shift(); file; file = queue.shift()) {
         try {
           const takenAt = await readPhotoDate(file);
+          const prior = existing(file);
+          if (prior) {
+            // Already uploaded: only re-read it if this copy tells us when it was taken.
+            if (takenAt !== undefined) {
+              const result = await extractLeads(await resizeImage(file), business, takenAt);
+              await saveResult({ photoId: prior._id, takenAt, ...result });
+            } else {
+              state.skipped++;
+            }
+            continue;
+          }
           const blob = await resizeImage(file);
           const result = await extractLeads(blob, business, takenAt);
           const url = await generateUploadUrl();
@@ -61,9 +76,10 @@ export default function App() {
           await savePhoto({ storageId, fileName: file.name, takenAt, ...result });
         } catch (err) {
           state.failed.push(`${file.name}: ${err instanceof Error ? err.message : err}`);
+        } finally {
+          state.done++;
+          setUpload({ ...state, failed: [...state.failed] });
         }
-        state.done++;
-        setUpload({ ...state, failed: [...state.failed] });
       }
     };
     const release = await keepScreenAwake();

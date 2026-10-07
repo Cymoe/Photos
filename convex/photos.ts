@@ -33,10 +33,11 @@ export const savePhoto = mutation({
 
 // Called after the browser re-reads an already-uploaded photo.
 export const saveResult = mutation({
-  args: { photoId: v.id("photos"), ...resultArgs },
-  handler: async (ctx, { photoId, ocrText, leads, error }) => {
+  args: { photoId: v.id("photos"), takenAt: v.optional(v.number()), ...resultArgs },
+  handler: async (ctx, { photoId, takenAt, ocrText, leads, error }) => {
     await replaceLeads(ctx, photoId, leads);
     await ctx.db.patch(photoId, {
+      ...(takenAt !== undefined && { takenAt }),
       ocrText,
       status: error ? "error" : "done",
       error,

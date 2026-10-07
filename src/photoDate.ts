@@ -4,10 +4,19 @@ export async function readPhotoDate(file: Blob): Promise<number | undefined> {
   try {
     const buf = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
     const tiff = findTiff(buf);
-    return tiff === null ? undefined : readTiffDate(buf, tiff);
+    return (tiff === null ? undefined : readTiffDate(buf, tiff)) ?? readXmpDate(buf);
   } catch {
     return undefined;
   }
+}
+
+// iOS screenshots (PNG) may carry the capture time only in XMP metadata.
+function readXmpDate(v: DataView): number | undefined {
+  const text = new TextDecoder("latin1").decode(v);
+  const m = text.match(/(?:photoshop:DateCreated|xmp:CreateDate|exif:DateTimeOriginal)(?:>|=")(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)/);
+  if (!m) return undefined;
+  const t = new Date(m[1]).getTime(); // no zone suffix: parsed as local time
+  return Number.isNaN(t) ? undefined : t;
 }
 
 function findTiff(v: DataView): number | null {
