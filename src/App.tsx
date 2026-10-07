@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 import { resizeImage } from "./resize";
 import { extractLeads, keepScreenAwake } from "./extract";
 import { readPhotoDate } from "./photoDate";
@@ -207,6 +207,16 @@ function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
 type LeadRow = FunctionReturnType<typeof api.leads.list>[number];
 type PhotoRow = Doc<"photos"> & { url: string | null };
 
+// A table row: one person (screenshots merged, the default) or one screenshot.
+type TableRow = Record<Field, string> & {
+  key: string;
+  ids: Id<"leads">[];
+  status: string;
+  myNotes: string;
+  sources: { photoId: Id<"photos">; fileName: string }[];
+  _creationTime: number;
+};
+
 function LeadsTable({
   leads,
   photos,
@@ -217,50 +227,53 @@ function LeadsTable({
   onPreview: (url: string) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [dupesOnly, setDupesOnly] = useState(false);
+  const [everyScreenshot, setEveryScreenshot] = useState(false);
   const [sort, setSort] = useState<"newest" | "oldest" | "upload">("newest");
   const updateLead = useMutation(api.leads.update);
   const removeLead = useMutation(api.leads.remove);
   const photoUrls = useMemo(() => new Map((photos ?? []).map((p) => [p._id, p.url])), [photos]);
-  // Same person as another row (by phone, email or full name), as on the Pipeline board.
+  // Same person across screenshots (by phone, email or full name), as on the Pipeline board.
   const people = useMemo(() => groupPeople(leads ?? []), [leads]);
-  const dupeIds = useMemo(() => new Set(people.filter((p) => p.ids.length > 1).flatMap((p) => p.ids)), [people]);
+  const groupSize = useMemo(() => new Map(people.flatMap((p) => p.ids.map((id) => [id, p.ids.length]))), [people]);
+
+  const rows = useMemo<TableRow[]>(
+    () =>
+      everyScreenshot
+        ? (leads ?? []).map((l) => ({ ...l, key: l._id, ids: [l._id], sources: [{ photoId: l.photoId, fileName: l.fileName }] }))
+        : people.map((p) => ({
+            ...p,
+            notes: p.notes.join(" | "),
+            sources: p.rows.map((r) => ({ photoId: r.photoId, fileName: r.fileName })),
+          })),
+    [leads, people, everyScreenshot],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const rows = (leads ?? []).filter(
-      (l) =>
-        (!dupesOnly || dupeIds.has(l._id)) &&
-        (!q || FIELDS.some((f) => l[f].toLowerCase().includes(q)) || l.fileName.toLowerCase().includes(q)),
+    const shown = rows.filter(
+      (r) =>
+        !q ||
+        FIELDS.some((f) => r[f].toLowerCase().includes(q)) ||
+        r.myNotes.toLowerCase().includes(q) ||
+        r.sources.some((s) => s.fileName.toLowerCase().includes(q)),
     );
-    if (sort === "upload") return rows;
-    // Undated leads go last either way; dates are YYYY-MM-DD so they compare as strings.
-    const sorted = [...rows].sort(byNewest);
+    if (sort === "upload") return [...shown].sort((a, b) => a._creationTime - b._creationTime);
+    // Undated rows go last either way; dates are YYYY-MM-DD so they compare as strings.
+    const sorted = [...shown].sort(byNewest);
     if (sort === "oldest") {
-      const dated = sorted.filter((l) => l.date).reverse();
-      return [...dated, ...sorted.filter((l) => !l.date)];
+      const dated = sorted.filter((r) => r.date).reverse();
+      return [...dated, ...sorted.filter((r) => !r.date)];
     }
     return sorted;
-  }, [leads, search, dupesOnly, sort, dupeIds]);
+  }, [rows, search, sort]);
 
   if (!leads) return <p className="muted">Loading…</p>;
 
-  const exportAll = () => downloadCsv(filtered, "leads-every-screenshot.csv");
-  // One merged row per person (newest first), matching the Pipeline board.
-  const exportPeople = () => {
-    const shown = new Set(filtered.map((l) => l._id));
+  const exportCsv = () =>
     downloadCsv(
-      people
-        .filter((p) => p.ids.some((id) => shown.has(id)))
-        .sort(byNewest)
-        .map((p) => ({
-          ...p,
-          notes: p.notes.join(" | "),
-          fileName: p.rows.map((r) => r.fileName).join(", "),
-        })),
-      "leads.csv",
+      filtered.map((r) => ({ ...r, fileName: r.sources.map((s) => s.fileName).join(", ") })),
+      everyScreenshot ? "leads-every-screenshot.csv" : "leads.csv",
     );
-  };
 
   return (
     <section>
@@ -277,12 +290,15 @@ function LeadsTable({
           <option value="upload">Upload order</option>
         </select>
         <label>
-          <input type="checkbox" checked={dupesOnly} onChange={(e) => setDupesOnly(e.target.checked)} />
-          Duplicates only
+          <input type="checkbox" checked={everyScreenshot} onChange={(e) => setEveryScreenshot(e.target.checked)} />
+          Show every screenshot
         </label>
         <span className="spacer" />
-        <button onClick={exportPeople} disabled={!filtered.length}>Export CSV (one row per person)</button>
-        <button onClick={exportAll} disabled={!filtered.length}>Export every screenshot</button>
+        <span className="muted">
+          {filtered.length}{" "}
+          {everyScreenshot ? (filtered.length === 1 ? "screenshot" : "screenshots") : filtered.length === 1 ? "person" : "people"}
+        </span>
+        <button onClick={exportCsv} disabled={!filtered.length}>Export CSV</button>
       </div>
       {leads.length === 0 ? (
         <p className="muted">No leads yet. Upload photos above and they'll appear here as they're processed.</p>
@@ -297,37 +313,50 @@ function LeadsTable({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((lead) => (
-                <tr key={lead._id} className={dupeIds.has(lead._id) ? "dupe" : ""}>
-                  {FIELDS.map((f) => (
-                    <td key={f} className={`col-${f}`}>
-                      <EditableCell
-                        value={lead[f]}
-                        onSave={(value) => updateLead({ leadId: lead._id, field: f, value })}
-                      />
+              {filtered.map((row) => {
+                // In "every screenshot" mode, flag rows that belong to someone with other screenshots.
+                const dupe = everyScreenshot && (groupSize.get(row.ids[0]) ?? 1) > 1;
+                return (
+                  <tr key={row.key} className={dupe ? "dupe" : ""}>
+                    {FIELDS.map((f) => (
+                      <td key={f} className={`col-${f}`}>
+                        <EditableCell
+                          value={row[f]}
+                          onSave={(value) => {
+                            for (const leadId of row.ids) void updateLead({ leadId, field: f, value });
+                          }}
+                        />
+                      </td>
+                    ))}
+                    <td className="source">
+                      {row.sources.map((s) =>
+                        photoUrls.get(s.photoId) ? (
+                          <button key={s.photoId} className="link" onClick={() => onPreview(photoUrls.get(s.photoId)!)}>
+                            {s.fileName}
+                          </button>
+                        ) : (
+                          <span key={s.photoId}>{s.fileName}</span>
+                        ),
+                      )}
+                      {dupe && <span className="badge">dupe</span>}
                     </td>
-                  ))}
-                  <td className="source">
-                    {photoUrls.get(lead.photoId) ? (
-                      <button className="link" onClick={() => onPreview(photoUrls.get(lead.photoId)!)}>
-                        {lead.fileName}
+                    <td>
+                      <button
+                        className="icon"
+                        title="Delete lead"
+                        onClick={() =>
+                          confirm(
+                            `Delete ${row.name || "this lead"}` +
+                              (row.ids.length > 1 ? ` (all ${row.ids.length} screenshots' leads)?` : "?"),
+                          ) && row.ids.forEach((leadId) => void removeLead({ leadId }))
+                        }
+                      >
+                        ×
                       </button>
-                    ) : (
-                      lead.fileName
-                    )}
-                    {dupeIds.has(lead._id) && <span className="badge">dupe</span>}
-                  </td>
-                  <td>
-                    <button
-                      className="icon"
-                      title="Delete lead"
-                      onClick={() => confirm(`Delete ${lead.name || "this lead"}?`) && removeLead({ leadId: lead._id })}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
