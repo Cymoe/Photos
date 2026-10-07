@@ -8,7 +8,7 @@ export const phoneKey = (phone: string) => {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 };
 
-export const STATUSES = ["new", "contacted", "scheduled", "sent", "won", "lost"] as const;
+export const STATUSES = ["new", "no_answer", "contacted", "scheduled", "sent", "won", "lost"] as const;
 const statusValidator = v.union(...STATUSES.map((s) => v.literal(s)));
 
 // One person can appear in several screenshots; status and notes follow the person.

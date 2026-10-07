@@ -1,6 +1,7 @@
 // Pipeline stages, in board order. Ids match STATUSES in convex/leads.ts.
 export const STAGES = [
   { id: "new", label: "New" },
+  { id: "no_answer", label: "No Answer" },
   { id: "contacted", label: "Contacted" },
   { id: "scheduled", label: "Estimate Scheduled" },
   { id: "sent", label: "Estimate Sent" },

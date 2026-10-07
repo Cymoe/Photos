@@ -119,6 +119,7 @@ tr.dupe td { background: var(--warn-soft); }
 .column .count { color: var(--muted); font-weight: 400; }
 .column .empty { color: var(--muted); text-align: center; font-size: 13px; margin: 24px 0; }
 .stage-new { --stage: #2f6fed; }
+.stage-no_answer { --stage: #d6457a; }
 .stage-contacted { --stage: #8a5cf6; }
 .stage-scheduled { --stage: #e8a317; }
 .stage-sent { --stage: #f07f2b; }
