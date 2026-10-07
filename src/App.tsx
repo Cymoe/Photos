@@ -5,13 +5,15 @@ import type { FunctionReturnType } from "convex/server";
 import type { Doc } from "../convex/_generated/dataModel";
 import { resizeImage } from "./resize";
 import { extractLeads, keepScreenAwake } from "./extract";
+import { readPhotoDate } from "./photoDate";
 import { parseBusinessInfo, type BusinessInfo } from "./parseLead";
 import { downloadCsv } from "./csv";
 
 const UPLOAD_CONCURRENCY = 4;
-const FIELDS = ["name", "phone", "email", "address", "city", "state", "zip", "notes"] as const;
+const FIELDS = ["date", "name", "phone", "email", "address", "city", "state", "zip", "notes"] as const;
 type Field = (typeof FIELDS)[number];
 const LABELS: Record<Field, string> = {
+  date: "Date",
   name: "Name",
   phone: "Phone",
   email: "Email",
@@ -49,13 +51,14 @@ export default function App() {
     const worker = async () => {
       for (let file = queue.shift(); file; file = queue.shift()) {
         try {
+          const takenAt = await readPhotoDate(file);
           const blob = await resizeImage(file);
-          const result = await extractLeads(blob, business);
+          const result = await extractLeads(blob, business, takenAt);
           const url = await generateUploadUrl();
           const res = await fetch(url, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
           if (!res.ok) throw new Error(`Upload failed (${res.status})`);
           const { storageId } = await res.json();
-          await savePhoto({ storageId, fileName: file.name, ...result });
+          await savePhoto({ storageId, fileName: file.name, takenAt, ...result });
         } catch (err) {
           state.failed.push(`${file.name}: ${err instanceof Error ? err.message : err}`);
         }
@@ -189,18 +192,25 @@ function LeadsTable({
 }) {
   const [search, setSearch] = useState("");
   const [dupesOnly, setDupesOnly] = useState(false);
+  const [sort, setSort] = useState<"newest" | "oldest" | "upload">("newest");
   const updateLead = useMutation(api.leads.update);
   const removeLead = useMutation(api.leads.remove);
   const photoUrls = useMemo(() => new Map((photos ?? []).map((p) => [p._id, p.url])), [photos]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (leads ?? []).filter(
+    const rows = (leads ?? []).filter(
       (l) =>
         (!dupesOnly || l.duplicate) &&
         (!q || FIELDS.some((f) => l[f].toLowerCase().includes(q)) || l.fileName.toLowerCase().includes(q)),
     );
-  }, [leads, search, dupesOnly]);
+    if (sort === "upload") return rows;
+    // Undated leads go last either way; dates are YYYY-MM-DD so they compare as strings.
+    const dir = sort === "newest" ? -1 : 1;
+    return [...rows].sort((a, b) =>
+      !a.date || !b.date ? Number(!a.date) - Number(!b.date) : a.date.localeCompare(b.date) * dir,
+    );
+  }, [leads, search, dupesOnly, sort]);
 
   if (!leads) return <p className="muted">Loading…</p>;
 
@@ -227,6 +237,11 @@ function LeadsTable({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="upload">Upload order</option>
+        </select>
         <label>
           <input type="checkbox" checked={dupesOnly} onChange={(e) => setDupesOnly(e.target.checked)} />
           Duplicates only
@@ -365,7 +380,7 @@ function PhotoGrid({
     setBusy((b) => new Set(b).add(p._id));
     try {
       const blob = await (await fetch(p.url)).blob();
-      await saveResult({ photoId: p._id, ...(await extractLeads(blob, business)) });
+      await saveResult({ photoId: p._id, ...(await extractLeads(blob, business, p.takenAt)) });
     } finally {
       setBusy((b) => {
         const next = new Set(b);

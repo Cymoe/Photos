@@ -1,7 +1,10 @@
+import { findLeadDate } from "./leadDate";
+
 // Turns OCR text from a lead screenshot (CRM message, form notification, SMS) into a
 // contact record. Labeled fields ("Phone: ...") win; unlabeled phone/email are a fallback.
 
 export type Lead = {
+  date: string; // YYYY-MM-DD the lead came in, "" if unknown
   name: string;
   phone: string;
   email: string;
@@ -124,7 +127,7 @@ export function parseBusinessInfo(text: string): BusinessInfo {
 
 const NO_BUSINESS: BusinessInfo = { addresses: [], phones: [], emails: [] };
 
-export function parseLead(text: string, business: BusinessInfo = NO_BUSINESS): Lead | null {
+export function parseLead(text: string, business: BusinessInfo = NO_BUSINESS, takenAt?: number): Lead | null {
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.replace(/[|]/g, "").trim())
@@ -223,6 +226,7 @@ export function parseLead(text: string, business: BusinessInfo = NO_BUSINESS): L
 
   if (!name && !phone && !email && !addr.address) return null;
   return {
+    date: findLeadDate(lines, anchor, takenAt),
     name: name.replace(/\s+/g, " ").trim(),
     phone,
     email,

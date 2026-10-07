@@ -62,6 +62,7 @@ h1 { font-size: 22px; margin: 0; }
 
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
 .toolbar input[type="search"] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); min-width: 240px; font: inherit; }
+.toolbar select { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 .toolbar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }
@@ -76,6 +77,7 @@ tr.dupe td { background: var(--warn-soft); }
 .cell:focus { outline: none; border-color: var(--accent); background: var(--surface); }
 .col-name, .col-address, .col-email { min-width: 170px; }
 .col-phone { min-width: 135px; }
+.col-date { min-width: 115px; }
 .col-city { min-width: 110px; }
 .col-state { width: 60px; }
 .col-zip { width: 80px; }

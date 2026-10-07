@@ -15,11 +15,12 @@ const resultArgs = {
 
 // Called by the browser after it has read the photo's text and uploaded the image.
 export const savePhoto = mutation({
-  args: { storageId: v.id("_storage"), fileName: v.string(), ...resultArgs },
-  handler: async (ctx, { storageId, fileName, ocrText, leads, error }) => {
+  args: { storageId: v.id("_storage"), fileName: v.string(), takenAt: v.optional(v.number()), ...resultArgs },
+  handler: async (ctx, { storageId, fileName, takenAt, ocrText, leads, error }) => {
     const photoId = await ctx.db.insert("photos", {
       storageId,
       fileName,
+      takenAt,
       ocrText,
       status: error ? "error" : "done",
       error,

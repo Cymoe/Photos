@@ -9,6 +9,7 @@ export const phoneKey = (phone: string) => {
 };
 
 export const leadFields = {
+  date: v.string(),
   name: v.string(),
   phone: v.string(),
   email: v.string(),
@@ -32,6 +33,7 @@ export const list = query({
     }
     return leads.map((l) => ({
       ...l,
+      date: l.date ?? "",
       fileName: photos.get(l.photoId) ?? "",
       duplicate: !!l.phoneKey && (phoneCounts.get(l.phoneKey) ?? 0) > 1,
     }));
@@ -42,6 +44,7 @@ export const update = mutation({
   args: {
     leadId: v.id("leads"),
     field: v.union(
+      v.literal("date"),
       v.literal("name"),
       v.literal("phone"),
       v.literal("email"),
@@ -71,7 +74,7 @@ export const remove = mutation({
 export async function replaceLeads(
   ctx: MutationCtx,
   photoId: Id<"photos">,
-  leads: { name: string; phone: string; email: string; address: string; city: string; state: string; zip: string; notes: string }[],
+  leads: { date: string; name: string; phone: string; email: string; address: string; city: string; state: string; zip: string; notes: string }[],
 ) {
   const existing = await ctx.db
     .query("leads")

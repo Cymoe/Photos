@@ -2,10 +2,10 @@ import { recognizeText } from "./ocr";
 import { parseLead, type BusinessInfo } from "./parseLead";
 
 // Reads the text in a photo and pulls out the prospect's contact details.
-export async function extractLeads(image: Blob, business: BusinessInfo) {
+export async function extractLeads(image: Blob, business: BusinessInfo, takenAt?: number) {
   try {
     const ocrText = await recognizeText(image);
-    const lead = parseLead(ocrText, business);
+    const lead = parseLead(ocrText, business, takenAt);
     return lead
       ? { ocrText, leads: [lead] }
       : { ocrText, leads: [], error: "No name, phone, email or address found in this photo" };

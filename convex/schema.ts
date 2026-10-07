@@ -16,11 +16,14 @@ export default defineSchema({
     error: v.optional(v.string()),
     // Raw recognized text, kept so bad extractions can be diagnosed.
     ocrText: v.optional(v.string()),
+    // When the photo/screenshot was taken (from its EXIF data), ms since epoch.
+    takenAt: v.optional(v.number()),
     leadCount: v.optional(v.number()),
   }).index("by_status", ["status"]),
 
   leads: defineTable({
     photoId: v.id("photos"),
+    date: v.optional(v.string()), // YYYY-MM-DD the lead came in
     name: v.string(),
     phone: v.string(),
     email: v.string(),
