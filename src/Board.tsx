@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 
 import { STAGES, byNewest, type Stage } from "./pipeline";
 import { fullAddress, groupPeople, type Person } from "./people";
+import { AppointmentField } from "./appointments";
 
 type LeadRow = FunctionReturnType<typeof api.leads.list>[number];
 
@@ -199,6 +200,8 @@ function Card({
           ))}
         </ul>
       )}
+
+      <AppointmentField person={p} />
 
       <textarea
         className="my-notes"

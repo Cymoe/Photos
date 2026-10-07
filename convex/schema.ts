@@ -38,6 +38,8 @@ export default defineSchema({
     statusChangedAt: v.optional(v.number()),
     // The user's own follow-up notes (separate from extracted form answers in `notes`).
     myNotes: v.optional(v.string()),
+    // Estimate appointment, ms since epoch.
+    appointmentAt: v.optional(v.number()),
     // Normalized digits-only phone, used to spot duplicates across photos.
     phoneKey: v.string(),
   })

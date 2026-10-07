@@ -18,7 +18,10 @@ in a Convex database, where you can review, fix, dedupe, and export them to CSV.
    finger) or pick a stage from its menu; add your own follow-up notes; tap phone/email/address to
    call, email or open Maps. Screenshots of the same person are merged into one card, and the banner
    shows the newest lead's date so you can tell whether the latest leads are in.
-5. **Review & export:** edit any cell, tap the source filename to see the photo, spot duplicate phone
+5. **Calendar:** set an estimate appointment with 📅 on any Pipeline card (it moves the card to
+   *Estimate Scheduled*). The *Calendar* tab shows a month view, upcoming appointments by day, and a
+   "Needs follow-up" list of past appointments still marked *Estimate Scheduled*.
+6. **Review & export:** edit any cell, tap the source filename to see the photo, spot duplicate phone
    numbers, and export a CSV (optionally deduped by phone).
 
 Works best on screenshots and printed text; handwriting is not reliable with OCR.

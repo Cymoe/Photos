@@ -84,6 +84,24 @@ export const setMyNotes = mutation({
   },
 });
 
+// Sets (or clears, with null) a person's appointment. Setting one moves leads that
+// haven't reached "scheduled" yet into it.
+export const setAppointment = mutation({
+  args: { leadIds: v.array(v.id("leads")), appointmentAt: v.union(v.number(), v.null()) },
+  handler: async (ctx, { leadIds, appointmentAt }) => {
+    const now = Date.now();
+    for (const id of leadIds) {
+      const lead = await ctx.db.get(id);
+      if (!lead) continue;
+      const advance = appointmentAt !== null && ["new", "no_answer", "contacted", undefined].includes(lead.status);
+      await ctx.db.patch(id, {
+        appointmentAt: appointmentAt ?? undefined,
+        ...(advance && { status: "scheduled", statusChangedAt: now }),
+      });
+    }
+  },
+});
+
 export const remove = mutation({
   args: { leadId: v.id("leads") },
   handler: async (ctx, { leadId }) => {
@@ -119,6 +137,7 @@ export async function replaceLeads(
       phoneKey: key,
       ...(prior?.status && { status: prior.status, statusChangedAt: prior.statusChangedAt }),
       ...(prior?.myNotes && { myNotes: prior.myNotes }),
+      ...(prior?.appointmentAt && { appointmentAt: prior.appointmentAt }),
     });
   }
 }

@@ -13,6 +13,7 @@ export type Person = {
   date: string;
   status: Stage;
   myNotes: string;
+  appointmentAt?: number;
   name: string;
   phone: string;
   email: string;
@@ -60,6 +61,7 @@ export function groupPeople(leads: LeadRow[]): Person[] {
       rows,
       date: rows.find((r) => r.date)?.date ?? "",
       status: (STAGES.some((s) => s.id === latest.status) ? latest.status : "new") as Stage,
+      appointmentAt: rows.reduce<number | undefined>((t, r) => Math.max(t ?? 0, r.appointmentAt ?? 0) || undefined, undefined),
       myNotes: [...new Set(rows.map((r) => r.myNotes).filter(Boolean))].join("\n"),
       name: first("name"),
       phone: first("phone"),

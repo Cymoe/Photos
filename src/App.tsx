@@ -9,6 +9,7 @@ import { readPhotoDate } from "./photoDate";
 import { parseBusinessInfo, type BusinessInfo } from "./parseLead";
 import { downloadCsv } from "./csv";
 import { Board } from "./Board";
+import { Calendar } from "./Calendar";
 import { byNewest } from "./pipeline";
 import { groupPeople } from "./people";
 
@@ -32,7 +33,7 @@ type UploadState = { total: number; done: number; failed: string[]; skipped: num
 export default function App() {
   const photos = useQuery(api.photos.list);
   const leads = useQuery(api.leads.list);
-  const [tab, setTab] = useState<"board" | "leads" | "photos">("board");
+  const [tab, setTab] = useState<"board" | "calendar" | "leads" | "photos">("board");
   const [upload, setUpload] = useState<UploadState | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const businessText = useQuery(api.settings.getBusinessInfo);
@@ -136,6 +137,9 @@ export default function App() {
         <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}>
           Pipeline
         </button>
+        <button className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}>
+          Calendar
+        </button>
         <button className={tab === "leads" ? "active" : ""} onClick={() => setTab("leads")}>
           Table ({leads?.length ?? 0})
         </button>
@@ -146,6 +150,8 @@ export default function App() {
 
       {tab === "board" ? (
         <Board leads={leads} photoUrls={photoUrls} onPreview={setPreview} />
+      ) : tab === "calendar" ? (
+        <Calendar leads={leads} />
       ) : tab === "leads" ? (
         <LeadsTable leads={leads} photos={photos} onPreview={setPreview} />
       ) : (

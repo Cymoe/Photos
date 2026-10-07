@@ -115,6 +115,7 @@ export const removeDuplicates = mutation({
             ...(lead.status && newer && { status: lead.status, statusChangedAt: lead.statusChangedAt }),
             ...(lead.myNotes && !target.myNotes && { myNotes: lead.myNotes }),
             ...(!target.date && lead.date && { date: lead.date }),
+            ...(lead.appointmentAt && !target.appointmentAt && { appointmentAt: lead.appointmentAt }),
           });
         }
         await ctx.db.delete(lead._id);
