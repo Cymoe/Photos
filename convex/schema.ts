@@ -22,7 +22,8 @@ export default defineSchema({
   }).index("by_status", ["status"]),
 
   leads: defineTable({
-    photoId: v.id("photos"),
+    // The screenshot this lead came from; unset if that photo was deleted (the lead is kept).
+    photoId: v.optional(v.id("photos")),
     date: v.optional(v.string()), // YYYY-MM-DD the lead came in
     name: v.string(),
     phone: v.string(),

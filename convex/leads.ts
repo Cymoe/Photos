@@ -39,7 +39,7 @@ export const list = query({
       date: l.date ?? "",
       status: l.status ?? "new",
       myNotes: l.myNotes ?? "",
-      fileName: photos.get(l.photoId) ?? "",
+      fileName: (l.photoId && photos.get(l.photoId)) ?? "",
     }));
   },
 });

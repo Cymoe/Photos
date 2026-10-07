@@ -57,6 +57,8 @@ export const list = query({
   },
 });
 
+// Deletes only the image: its leads (with their stage and notes) are kept, just no
+// longer linked to a photo. Leads are deleted separately, from the Table.
 export const remove = mutation({
   args: { photoId: v.id("photos") },
   handler: async (ctx, { photoId }) => {
@@ -66,7 +68,7 @@ export const remove = mutation({
       .query("leads")
       .withIndex("by_photo", (q) => q.eq("photoId", photoId))
       .collect();
-    for (const lead of leads) await ctx.db.delete(lead._id);
+    for (const lead of leads) await ctx.db.patch(lead._id, { photoId: undefined });
     await ctx.storage.delete(photo.storageId);
     await ctx.db.delete(photoId);
   },

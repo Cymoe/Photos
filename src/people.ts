@@ -21,7 +21,7 @@ export type Person = {
   state: string;
   zip: string;
   notes: string[];
-  photoId: Id<"photos">;
+  photoId?: Id<"photos">;
   _creationTime: number;
 };
 
@@ -69,7 +69,7 @@ export function groupPeople(leads: LeadRow[]): Person[] {
       state: withAddr.state,
       zip: withAddr.zip,
       notes: [...new Set(rows.flatMap((r) => r.notes.split(" | ")).map((n) => n.trim()).filter(Boolean))],
-      photoId: rows[0].photoId,
+      photoId: rows.find((r) => r.photoId)?.photoId,
       _creationTime: rows[0]._creationTime,
     };
   });

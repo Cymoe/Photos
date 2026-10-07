@@ -213,7 +213,7 @@ type TableRow = Record<Field, string> & {
   ids: Id<"leads">[];
   status: string;
   myNotes: string;
-  sources: { photoId: Id<"photos">; fileName: string }[];
+  sources: { photoId?: Id<"photos">; fileName: string }[];
   _creationTime: number;
 };
 
@@ -329,15 +329,16 @@ function LeadsTable({
                       </td>
                     ))}
                     <td className="source">
-                      {row.sources.map((s) =>
-                        photoUrls.get(s.photoId) ? (
-                          <button key={s.photoId} className="link" onClick={() => onPreview(photoUrls.get(s.photoId)!)}>
+                      {row.sources.map((s, i) => {
+                        const url = s.photoId && photoUrls.get(s.photoId);
+                        return url ? (
+                          <button key={i} className="link" onClick={() => onPreview(url)}>
                             {s.fileName}
                           </button>
                         ) : (
-                          <span key={s.photoId}>{s.fileName}</span>
-                        ),
-                      )}
+                          <span key={i} className="muted">{s.fileName || "photo deleted"}</span>
+                        );
+                      })}
                       {dupe && <span className="badge">dupe</span>}
                     </td>
                     <td>
@@ -525,9 +526,12 @@ function PhotoGrid({
                 </button>
                 <button
                   className="link"
-                  onClick={() => confirm(`Delete ${p.fileName} and its leads?`) && remove({ photoId: p._id })}
+                  onClick={() =>
+                    confirm(`Delete the photo ${p.fileName}? Its lead stays on your board and table.`) &&
+                    remove({ photoId: p._id })
+                  }
                 >
-                  delete
+                  delete photo
                 </button>
               </span>
             </figcaption>

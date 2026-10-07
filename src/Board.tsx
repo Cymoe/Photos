@@ -106,7 +106,7 @@ export function Board({
                   dragging={drag?.person.key === p.key}
                   handle={dragHandlers(p)}
                   onMove={(s) => move(p, s)}
-                  photoUrl={photoUrls.get(p.photoId) ?? null}
+                  photoUrl={(p.photoId && photoUrls.get(p.photoId)) || null}
                   onPreview={onPreview}
                 />
               ))}
