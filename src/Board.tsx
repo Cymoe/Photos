@@ -2,58 +2,11 @@ import { useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
-import type { Id } from "../convex/_generated/dataModel";
 
 import { STAGES, byNewest, type Stage } from "./pipeline";
+import { fullAddress, groupPeople, type Person } from "./people";
 
 type LeadRow = FunctionReturnType<typeof api.leads.list>[number];
-
-// One card per person: screenshots of the same prospect are merged.
-type Person = {
-  key: string;
-  ids: Id<"leads">[];
-  rows: LeadRow[];
-  date: string;
-  status: Stage;
-  myNotes: string;
-  name: string;
-  phone: string;
-  email: string;
-  address: string;
-  notes: string[];
-  photoId: Id<"photos">;
-  _creationTime: number;
-};
-
-const personKey = (l: LeadRow) =>
-  l.phoneKey || l.email.toLowerCase() || l.name.toLowerCase().replace(/\s+/g, " ").trim() || l._id;
-
-function groupPeople(leads: LeadRow[]): Person[] {
-  const groups = new Map<string, LeadRow[]>();
-  for (const l of leads) groups.set(personKey(l), [...(groups.get(personKey(l)) ?? []), l]);
-  return [...groups.entries()].map(([key, rows]) => {
-    rows.sort(byNewest);
-    const first = (f: "name" | "phone" | "email") => rows.find((r) => r[f])?.[f] ?? "";
-    const withAddr = rows.find((r) => r.address);
-    // The most recently moved screenshot decides the stage.
-    const latest = [...rows].sort((a, b) => (b.statusChangedAt ?? 0) - (a.statusChangedAt ?? 0))[0];
-    return {
-      key,
-      ids: rows.map((r) => r._id),
-      rows,
-      date: rows[0].date,
-      status: (STAGES.some((s) => s.id === latest.status) ? latest.status : "new") as Stage,
-      myNotes: rows.find((r) => r.myNotes)?.myNotes ?? "",
-      name: first("name"),
-      phone: first("phone"),
-      email: first("email"),
-      address: withAddr ? [withAddr.address, withAddr.city, withAddr.state, withAddr.zip].filter(Boolean).join(", ") : "",
-      notes: [...new Set(rows.flatMap((r) => r.notes.split(" | ")).map((n) => n.trim()).filter(Boolean))],
-      photoId: rows[0].photoId,
-      _creationTime: rows[0]._creationTime,
-    };
-  });
-}
 
 function formatDate(date: string) {
   if (!date) return "No date";
@@ -84,7 +37,7 @@ export function Board({
     return people.filter(
       (p) =>
         (!undatedOnly || !p.date) &&
-        (!q || [p.name, p.phone, p.email, p.address, p.myNotes, ...p.notes].some((t) => t.toLowerCase().includes(q))),
+        (!q || [p.name, p.phone, p.email, fullAddress(p), p.myNotes, ...p.notes].some((t) => t.toLowerCase().includes(q))),
     );
   }, [people, search, undatedOnly]);
 
@@ -203,9 +156,9 @@ function Card({
       <div className="contact">
         {p.phone && <a href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>📞 {p.phone}</a>}
         {p.email && <a href={`mailto:${p.email}`}>✉️ {p.email}</a>}
-        {p.address && (
-          <a href={`https://maps.apple.com/?q=${encodeURIComponent(p.address)}`} target="_blank" rel="noreferrer">
-            📍 {p.address}
+        {fullAddress(p) && (
+          <a href={`https://maps.apple.com/?q=${encodeURIComponent(fullAddress(p))}`} target="_blank" rel="noreferrer">
+            📍 {fullAddress(p)}
           </a>
         )}
       </div>

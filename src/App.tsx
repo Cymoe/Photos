@@ -10,6 +10,7 @@ import { parseBusinessInfo, type BusinessInfo } from "./parseLead";
 import { downloadCsv } from "./csv";
 import { Board } from "./Board";
 import { byNewest } from "./pipeline";
+import { groupPeople } from "./people";
 
 const UPLOAD_CONCURRENCY = 4;
 const FIELDS = ["date", "name", "phone", "email", "address", "city", "state", "zip", "notes"] as const;
@@ -221,12 +222,15 @@ function LeadsTable({
   const updateLead = useMutation(api.leads.update);
   const removeLead = useMutation(api.leads.remove);
   const photoUrls = useMemo(() => new Map((photos ?? []).map((p) => [p._id, p.url])), [photos]);
+  // Same person as another row (by phone, email or full name), as on the Pipeline board.
+  const people = useMemo(() => groupPeople(leads ?? []), [leads]);
+  const dupeIds = useMemo(() => new Set(people.filter((p) => p.ids.length > 1).flatMap((p) => p.ids)), [people]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = (leads ?? []).filter(
       (l) =>
-        (!dupesOnly || l.duplicate) &&
+        (!dupesOnly || dupeIds.has(l._id)) &&
         (!q || FIELDS.some((f) => l[f].toLowerCase().includes(q)) || l.fileName.toLowerCase().includes(q)),
     );
     if (sort === "upload") return rows;
@@ -237,21 +241,24 @@ function LeadsTable({
       return [...dated, ...sorted.filter((l) => !l.date)];
     }
     return sorted;
-  }, [leads, search, dupesOnly, sort]);
+  }, [leads, search, dupesOnly, sort, dupeIds]);
 
   if (!leads) return <p className="muted">Loading…</p>;
 
-  const exportAll = () => downloadCsv(filtered, "leads.csv");
-  const exportUnique = () => {
-    const seen = new Set<string>();
+  const exportAll = () => downloadCsv(filtered, "leads-every-screenshot.csv");
+  // One merged row per person (newest first), matching the Pipeline board.
+  const exportPeople = () => {
+    const shown = new Set(filtered.map((l) => l._id));
     downloadCsv(
-      filtered.filter((l) => {
-        if (!l.phoneKey) return true;
-        if (seen.has(l.phoneKey)) return false;
-        seen.add(l.phoneKey);
-        return true;
-      }),
-      "leads-unique.csv",
+      people
+        .filter((p) => p.ids.some((id) => shown.has(id)))
+        .sort(byNewest)
+        .map((p) => ({
+          ...p,
+          notes: p.notes.join(" | "),
+          fileName: p.rows.map((r) => r.fileName).join(", "),
+        })),
+      "leads.csv",
     );
   };
 
@@ -274,8 +281,8 @@ function LeadsTable({
           Duplicates only
         </label>
         <span className="spacer" />
-        <button onClick={exportAll} disabled={!filtered.length}>Export CSV</button>
-        <button onClick={exportUnique} disabled={!filtered.length}>Export (dedupe by phone)</button>
+        <button onClick={exportPeople} disabled={!filtered.length}>Export CSV (one row per person)</button>
+        <button onClick={exportAll} disabled={!filtered.length}>Export every screenshot</button>
       </div>
       {leads.length === 0 ? (
         <p className="muted">No leads yet. Upload photos above and they'll appear here as they're processed.</p>
@@ -291,7 +298,7 @@ function LeadsTable({
             </thead>
             <tbody>
               {filtered.map((lead) => (
-                <tr key={lead._id} className={lead.duplicate ? "dupe" : ""}>
+                <tr key={lead._id} className={dupeIds.has(lead._id) ? "dupe" : ""}>
                   {FIELDS.map((f) => (
                     <td key={f} className={`col-${f}`}>
                       <EditableCell
@@ -308,7 +315,7 @@ function LeadsTable({
                     ) : (
                       lead.fileName
                     )}
-                    {lead.duplicate && <span className="badge">dupe</span>}
+                    {dupeIds.has(lead._id) && <span className="badge">dupe</span>}
                   </td>
                   <td>
                     <button
@@ -431,6 +438,8 @@ function PhotoGrid({
     }
   }
   const remove = useMutation(api.photos.remove);
+  const duplicateCount = useQuery(api.photos.duplicateCount);
+  const removeDuplicates = useMutation(api.photos.removeDuplicates);
   if (!photos) return <p className="muted">Loading…</p>;
   const failed = photos.filter((p) => p.status === "error").length;
 
@@ -444,6 +453,18 @@ function PhotoGrid({
             {failed > 0 && (
               <button onClick={() => reextractMany(photos.filter((p) => p.status === "error"))}>
                 Retry {failed} failed
+              </button>
+            )}
+            {!!duplicateCount && (
+              <button
+                onClick={() =>
+                  confirm(
+                    `Remove ${duplicateCount} photo${duplicateCount === 1 ? "" : "s"} uploaded more than once? ` +
+                      "One copy of each is kept, along with its stage and notes.",
+                  ) && removeDuplicates()
+                }
+              >
+                Remove {duplicateCount} duplicate photo{duplicateCount === 1 ? "" : "s"}
               </button>
             )}
             {photos.length > 0 && (

@@ -34,17 +34,12 @@ export const list = query({
     const photos = new Map(
       (await ctx.db.query("photos").collect()).map((p) => [p._id, p.fileName]),
     );
-    const phoneCounts = new Map<string, number>();
-    for (const l of leads) {
-      if (l.phoneKey) phoneCounts.set(l.phoneKey, (phoneCounts.get(l.phoneKey) ?? 0) + 1);
-    }
     return leads.map((l) => ({
       ...l,
       date: l.date ?? "",
       status: l.status ?? "new",
       myNotes: l.myNotes ?? "",
       fileName: photos.get(l.photoId) ?? "",
-      duplicate: !!l.phoneKey && (phoneCounts.get(l.phoneKey) ?? 0) > 1,
     }));
   },
 });
