@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { FunctionReturnType } from "convex/server";
@@ -142,6 +142,35 @@ function Card({
 }) {
   const setMyNotes = useMutation(api.leads.setMyNotes);
   const [draft, setDraft] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // Notes autosave shortly after typing stops, and immediately when the box loses focus
+  // or the page is hidden (switching apps, locking the iPad), so nothing typed is lost.
+  const pending = useRef<{ text: string; timer: number } | null>(null);
+  const flush = () => {
+    const p0 = pending.current;
+    if (!p0) return;
+    clearTimeout(p0.timer);
+    pending.current = null;
+    setSaveState("saving");
+    setMyNotes({ leadIds: p.ids, myNotes: p0.text }).then(
+      () => setSaveState("saved"),
+      () => setSaveState("error"),
+    );
+  };
+  const flushRef = useRef(flush);
+  useEffect(() => {
+    flushRef.current = flush;
+  });
+  useEffect(() => {
+    const onHide = () => document.visibilityState === "hidden" && flushRef.current();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onHide);
+      flushRef.current();
+    };
+  }, []);
 
   return (
     <article className={`card ${dragging ? "dragging" : ""}`}>
@@ -176,12 +205,23 @@ function Card({
         placeholder="+ Add a note (called, left VM, estimate Tue 3pm…)"
         rows={(draft ?? p.myNotes) ? 3 : 2}
         value={draft ?? p.myNotes}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          setSaveState("idle");
+          if (pending.current) clearTimeout(pending.current.timer);
+          pending.current = { text, timer: window.setTimeout(() => flushRef.current(), 800) };
+        }}
         onBlur={() => {
-          if (draft !== null && draft !== p.myNotes) void setMyNotes({ leadIds: p.ids, myNotes: draft });
+          flush();
           setDraft(null);
         }}
       />
+      {saveState !== "idle" && (
+        <span className={`save-state ${saveState}`}>
+          {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Not saved: check your connection and edit again"}
+        </span>
+      )}
 
       <footer>
         <select value={p.status} onChange={(e) => onMove(e.target.value as Stage)}>
